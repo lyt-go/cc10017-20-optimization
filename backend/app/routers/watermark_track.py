@@ -65,6 +65,12 @@ def export_entries(
         headers={"Content-Disposition": 'attachment; filename="watermark_track.csv"'})
 
 
+@router.get("/unchecked-windows")
+def unchecked_windows() -> dict:
+    """用巡检批次表核对水位窗口：返回尚未检查的水位窗口及批次来源版本。"""
+    return service.unchecked_windows()
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条水位标记明细；不存在时给出可读的错误说明。"""

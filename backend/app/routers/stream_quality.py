@@ -65,6 +65,44 @@ def export_entries(
         headers={"Content-Disposition": 'attachment; filename="stream_quality.csv"'})
 
 
+@router.get("/batch-inspections")
+def list_batches() -> dict:
+    """巡检批次表：窗口去重结果与续做边界都持久化在这里。"""
+    return {"items": service.list_batches()}
+
+
+@router.post("/batch-inspections", response_model=ActionResult)
+def run_batch_inspection(payload: dict[str, object]) -> ActionResult:
+    """一次提交多条质量规则做批量巡检；simulate_interrupt 用于验证断点续做。"""
+    raw_ids = payload.get("rule_ids") or []
+    rule_ids = list(raw_ids) if isinstance(raw_ids, list) else []
+    if not rule_ids:
+        return ActionResult(ok=False, message="请先选择要巡检的质量规则")
+    fail_after = 1 if payload.get("simulate_interrupt") else None
+    batch, message = service.run_batch_inspection(rule_ids, fail_after=fail_after)
+    if batch is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=batch)
+
+
+@router.get("/batch-inspections/{batch_id}")
+def get_batch(batch_id: int) -> dict:
+    """读取单个巡检批次：含逐窗口结果与续做边界。"""
+    batch = service.get_batch(batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail=f"巡检批次 {batch_id} 不存在")
+    return batch
+
+
+@router.post("/batch-inspections/{batch_id}/resume", response_model=ActionResult)
+def resume_batch(batch_id: int) -> ActionResult:
+    """从续做边界恢复中断批次：只续做未完成窗口，已检查结果保留不重扫。"""
+    batch, message = service.resume_batch(batch_id)
+    if batch is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=batch)
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条质量规则明细；不存在时给出可读的错误说明。"""

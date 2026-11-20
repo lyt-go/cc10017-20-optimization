@@ -581,6 +581,7 @@ class PipelineEngine:
             "upsert_merge_artifacts": len(store.rows("upsert_merge_artifacts")),
             "iceberg_partition_specs": len(store.rows("iceberg_partition_specs")),
             "quality_inspection_results": len(store.rows("quality_inspection_results")),
+            "quality_inspection_batches": len(store.rows("quality_inspection_batches")),
             "materialized_refresh_log": len(store.rows("materialized_refresh_log")),
             "sink_dispatch_queue": len(store.rows("sink_dispatch_queue")),
             "compact_results": len(store.rows("compact_results")),

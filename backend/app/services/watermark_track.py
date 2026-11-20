@@ -1,8 +1,18 @@
-"""水位追踪业务规则：状态流转、字段校验与筛选口径都收在这里。"""
+"""水位追踪业务规则：状态流转、字段校验与筛选口径都收在这里。
+
+增强：跨模块接收流式质量的巡检批次表（quality_inspection_batches），
+据此取得尚未检查的水位窗口；批次表由流式质量保留来源版本（规则版本）。
+"""
 from __future__ import annotations
 
 from typing import Any
 
+from app.services.stream_quality import (
+    BATCH_TABLE,
+    WINDOW_STATUS_CHECKED,
+    window_boundary_for,
+    window_key_for,
+)
 from app.store import store
 
 MODULE = "watermark_track"
@@ -63,3 +73,66 @@ class WatermarkTrackService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"水位标记已{action}"
+
+    def unchecked_windows(self) -> dict[str, Any]:
+        """用巡检批次表核对水位窗口：返回尚未检查的水位窗口清单。
+
+        跨模块接收流式质量的巡检批次表；只有批次表里「已检查」的窗口键
+        才视为已核对，待检查/已去重都不算完成，仍属于尚未检查集合。
+        """
+        batches = store.rows(BATCH_TABLE)
+        checked_keys = {
+            window.get("window_key")
+            for batch in batches
+            for window in batch.get("windows", [])
+            if window.get("status") == WINDOW_STATUS_CHECKED
+        }
+
+        unchecked: list[dict[str, Any]] = []
+        for wm in store.rows(MODULE):
+            if wm.get("status") == "已停用":
+                continue
+            topic = wm.get("数据主题")
+            rule = self._find_quality_rule(topic)
+            spec = str(rule.get("检测窗口")) if rule and rule.get("检测窗口") else "5min"
+            key = window_key_for(topic, spec, wm.get("检查时间"))
+            if key in checked_keys:
+                continue
+            unchecked.append({
+                "标记编号": wm.get("标记编号"),
+                "数据主题": topic,
+                "分区编号": wm.get("分区编号"),
+                "检测窗口": spec,
+                "窗口边界": window_boundary_for(wm.get("检查时间"), spec),
+                "延迟记录数": wm.get("延迟记录数"),
+                "水位状态": wm.get("status"),
+                "规则版本": rule.get("规则版本") if rule else "-",
+            })
+
+        return {
+            "source_table": BATCH_TABLE,
+            "unchecked": unchecked,
+            "unchecked_count": len(unchecked),
+            "checked_count": len(checked_keys),
+            "source_batches": [
+                {
+                    "批次编号": batch.get("批次编号"),
+                    "来源版本": batch.get("来源版本"),
+                    "去重口径": batch.get("去重口径"),
+                    "status": batch.get("status"),
+                }
+                for batch in sorted(batches, key=lambda b: int(b.get("id", 0)), reverse=True)
+            ],
+        }
+
+    def _find_quality_rule(self, topic_code: str | None) -> dict[str, Any] | None:
+        """监控该主题的流式质量规则：优先已生效，其次任意状态。"""
+        fallback = None
+        for row in store.rows("stream_quality"):
+            if row.get("监控主题") != topic_code:
+                continue
+            if row.get("status") == "已生效":
+                return row
+            if fallback is None:
+                fallback = row
+        return fallback

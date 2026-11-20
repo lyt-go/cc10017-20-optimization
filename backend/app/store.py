@@ -40,7 +40,8 @@ class Store:
         # artifact 表统计
         artifact_names = [
             "upsert_merge_artifacts", "iceberg_partition_specs",
-            "quality_inspection_results", "materialized_refresh_log",
+            "quality_inspection_results", "quality_inspection_batches",
+            "materialized_refresh_log",
             "sink_dispatch_queue", "compact_results",
             "ttl_applied_log", "realtime_metric_results",
         ]
